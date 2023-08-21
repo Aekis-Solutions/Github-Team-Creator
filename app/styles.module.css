@@ -1,0 +1,67 @@
+.container {
+    @apply mx-auto p-4 max-w-screen-md;
+}
+
+/* Styles for input fields */
+.input-field {
+    color: #333;
+    padding: 8px;
+    border: 1px solid #ccc;
+    border-radius: 4px;
+}
+
+/* Styles for select elements */
+.select-field {
+    color: #333;
+    padding: 8px;
+    border: 1px solid #ccc;
+    border-radius: 4px;
+    background-color: white;
+}
+
+.column-sorting-indicator {
+    @apply ml-1;
+    font-size: small;
+}
+
+.header-row {
+    color: black;
+}
+
+.header-filter {
+    text-align: "left"
+}
+
+.header-filter div {
+    display: flex;
+    background-color: black;
+    color: white;
+    font-weight: normal;
+    border: 0;
+}
+
+.header-filter div input {
+    flex: 1;
+    background-color: black;
+    color: white;
+}
+
+/* Défilement vertical */
+.custom-table {
+    overflow-y: scroll;
+    max-height: 80vh;
+}
+
+/* En-têtes collants */
+.custom-table thead {
+    position: sticky;
+    top: 0;
+    z-index: 1;
+}
+
+/* En-têtes collants */
+.custom-table tfoot {
+    position: sticky;
+    bottom: 0;
+    z-index: 1;
+}
