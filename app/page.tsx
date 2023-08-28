@@ -2,137 +2,108 @@
 
 import { useState, useEffect, useMemo, ChangeEvent } from "react";
 import {
-  Column,
-  useGlobalFilter,
-  useRowSelect,
-  useSortBy,
-  useTable,
-} from "react-table";
+  useReactTable,
+  getCoreRowModel,
+  getSortedRowModel,
+  SortingState,
+  getFilteredRowModel,
+  ColumnDef,
+  createColumnHelper,
+  flexRender,
+  RowSelectionState,
+  FiltersTableState,
+} from "@tanstack/react-table";
 import "tailwindcss/tailwind.css";
 import styles from "./styles.module.css";
 
-import { Octokit } from "@octokit/rest";
+import { GithubService } from "./services/GithubService";
 import { Repository } from "./models/Repository";
-import { Owner } from "./models/User";
+import { User } from "./models/User";
 import { Team } from "./models/Team";
 import IndeterminateCheckbox from "@/components/IndeterminateCheckbox";
 
 export default function Home() {
   const [token, setToken] = useState<string>("");
   const [organization, setOrganization] = useState<string>("");
-  const [repositories, setRepositories] = useState<Repository[]>([]);
+  const [currentUser, setCurrentUser] = useState<User>();
   const [teams, setTeams] = useState<Team[]>([]);
+  const [repositories, setRepositories] = useState<Repository[]>([]);
   const [selectedTeam, setSelectedTeam] = useState<string>("");
-  const [selectedRepos, setSelectedRepos] = useState<number[]>([]);
+  const [loadingCurrentUser, setLoadingCurrentUser] = useState<boolean>(false);
+  const [loadingRepositories, setLoadingRepositories] =
+    useState<boolean>(false);
+  const [loadingTeams, setLoadingTeams] = useState<boolean>(false);
   const [error, setError] = useState<any>(null);
 
-  useEffect(() => {
-    initializeStore();
+  const [rowSelection, setRowSelection] = useState<RowSelectionState>({});
+  const [globalFilter, setGlobalFilter] = useState("");
+  const [sorting, setSorting] = useState<SortingState>([]);
 
-    if (token && organization) {
-      fetchRepositories();
-      fetchTeams();
-    }
-  }, [token, organization]);
+  const githubService = new GithubService();
 
   const initializeStore = () => {
     setToken(localStorage.getItem("token") || "");
     setOrganization(localStorage.getItem("organization") || "");
   };
 
-  const fetchRepositories = async () => {
+  const fetchCurrentUser = async () => {
+    setError(null);
+    setLoadingCurrentUser(true);
+
     try {
-      setError(null);
+      const user = await githubService.fetchCurrentUser(token);
 
-      const octokit = new Octokit({ auth: token });
-      const result = await octokit.repos.listForOrg({
-        org: organization,
-        type: "all",
-        per_page: 1000,
-      });
-
-      const repos = Array.from(result.data)
-        .map((i) => toRepository(i))
-        .sort((a, b) => a.name.localeCompare(b.name));
-
-      setRepositories(repos);
+      setCurrentUser(user);
     } catch (error: any) {
-      setError(`fetchRepositories: ${error.message}`);
+      setError(`fetchCurrentUser: ${error.message}`);
       console.error(error);
+    } finally {
+      setLoadingCurrentUser(false);
     }
-  };
-
-  const toRepository = (source: any): Repository => {
-    return {
-      id: source.id,
-      name: source.name,
-      fullName: source.full_name,
-      description: source.description,
-      language: source.language,
-      archived: source.archived,
-      owner: toOwner(source.owner),
-      created: new Date(source.created_at),
-      updated: new Date(source.updated_at),
-      url: source.html_url,
-      homepage: source.homepage,
-      stargazersCount: source.stargazers_count,
-      watchersCount: source.watchers_count,
-      forksCount: source.forks_count,
-      openIssueCount: source.open_issues_count,
-    } as Repository;
-  };
-
-  const toOwner = (source: any): Owner => {
-    return {
-      id: source.id,
-      name: source.login,
-      type: source.type,
-      url: source.html_url,
-      avatarUrl: source.avatar_url,
-    } as Owner;
-  };
-
-  const toTeam = (source: any): Team => {
-    return {
-      id: source.id,
-      name: source.name,
-      node_id: source.node_id,
-      slug: source.slug,
-      description: source.description,
-      privacy: source.privacy,
-      notification_setting: source.notification_setting,
-      url: source.url,
-      html_url: source.html_url,
-      members_url: source.members_url,
-      repositories_url: source.repositories_url,
-      permission: source.permission,
-      parent: source.parent,
-    } as Team;
   };
 
   const fetchTeams = async () => {
+    setError(null);
+    setLoadingTeams(true);
+
     try {
-      setError(null);
+      const teams = await githubService.fetchTeams(token, organization);
 
-      const octokit = new Octokit({ auth: token });
-      const result = await octokit.teams.list({
-        org: organization,
-        type: "all",
-        per_page: 1000,
-      });
+      const sortedTeams = teams.sort((a, b) => a.name.localeCompare(b.name));
 
-      const teams = Array.from(result.data)
-        .map((i) => toTeam(i))
-        .sort((a, b) => a.name.localeCompare(b.name));
-
-      setTeams(teams);
+      setTeams(sortedTeams);
     } catch (error: any) {
       setError(`fetchTeams: ${error.message}`);
       console.error(error);
+    } finally {
+      setLoadingTeams(false);
     }
   };
 
-  const associateReposToTeam = async () => {
+  const fetchRepositories = async () => {
+    setError(null);
+    setLoadingRepositories(true);
+
+    try {
+      const repositories = await githubService.fetchRepositories(
+        token,
+        organization
+      );
+
+      const sortedRepositories = repositories.sort((a, b) =>
+        a.name.localeCompare(b.name)
+      );
+
+      setRepositories(sortedRepositories);
+    } catch (error: any) {
+      setError(`fetchRepositories: ${error.message}`);
+      console.error(error);
+    } finally {
+      setLoadingRepositories(false);
+    }
+  };
+
+  const updateSelectedTeam = async () => {
     try {
       setError(null);
 
@@ -141,15 +112,11 @@ export default function Home() {
         return;
       }
 
-      const associationData = {
-        team_slug: selectedTeam,
-        repo_names: selectedRepos.map(
-          (repoId) => repositories.find((repo) => repo.id === repoId)?.name
-        ),
-      };
+      console.log(JSON.stringify(rowSelection));
+      //await githubService.updateTeam(token, selectedTeam, rowSelection);
     } catch (error: any) {
-      setError(`associateReposToTeam: ${error.message}`);
-      console.error("Error associating repositories:", error);
+      setError(`updateTeam: ${error.message}`);
+      console.error(error);
     }
   };
 
@@ -168,89 +135,161 @@ export default function Home() {
   const handleTeamChange = (e: ChangeEvent<HTMLSelectElement>) => {
     const newSelectedTeam = e.target.value;
     setSelectedTeam(newSelectedTeam);
-    localStorage.setItem("selectedTeam", newSelectedTeam); // Update localStorage
   };
 
   const handleFilterChange = (e: ChangeEvent<HTMLInputElement>) => {
-    const newFilter = e.target.value;
-    // setFilter(newFilter);
+    const newFilter = e.target.value ?? "";
     setGlobalFilter(newFilter);
   };
 
-  const columns: Column<Repository>[] = useMemo(
+  const columnHelper = createColumnHelper<Repository>();
+
+  const columns = useMemo<ColumnDef<Repository, any>[]>(
     () => [
       {
         id: "selection",
-        Header: ({ getToggleAllRowsSelectedProps }) => (
-          <div>
-            <IndeterminateCheckbox
-              {...getToggleAllRowsSelectedProps()}
-              key={`htoggle`}
-            />
-          </div>
+        header: ({ table }) => (
+          <IndeterminateCheckbox
+            {...{
+              checked: table.getIsAllRowsSelected(),
+              indeterminate: table.getIsSomeRowsSelected(),
+              onChange: table.getToggleAllRowsSelectedHandler(),
+            }}
+          />
         ),
-        Cell: ({ row }) => (
-          <div>
+        cell: ({ row }) => (
+          <div className="px-1">
             <IndeterminateCheckbox
-              {...row.getToggleRowSelectedProps()}
-              key={`r${row.id}-ctoggle`}
+              {...{
+                checked: row.getIsSelected(),
+                disabled: !row.getCanSelect(),
+                indeterminate: row.getIsSomeSelected(),
+                onChange: row.getToggleSelectedHandler(),
+              }}
             />
           </div>
         ),
       },
-      {
+      columnHelper.accessor((row) => row.name, {
         id: "Repository",
-        Header: "Repository",
-        accessor: "name",
-      },
-      {
+        header: "Repository",
+        footer: (props) => props.column.id,
+      }),
+      columnHelper.accessor((row) => row.primaryLanguage?.name ?? "N/A", {
         id: "Language",
-        Header: "Language",
-        accessor: "language",
-      },
-      {
+        header: "Language",
+        footer: (props) => props.column.id,
+      }),
+      columnHelper.accessor((row) => row.created, {
         id: "Created",
-        Header: "Created",
-        accessor: "created",
+        header: "Created",
         sortingFn: "datetime",
-        Cell: ({ value }) => new Date(value).toLocaleDateString(),
-      },
-      {
-        id: "Updated",
-        Header: "Updated",
-        accessor: "updated",
+        cell: (info) => new Date(info.getValue()).toLocaleDateString(),
+        footer: (props) => props.column.id,
+      }),
+      columnHelper.accessor((row) => row.pushed, {
+        id: "Pushed",
+        header: "Pushed",
         sortingFn: "datetime",
-        Cell: ({ value }) => new Date(value).toLocaleDateString(),
-      },
+        cell: (info) => {
+          const date = new Date(info.getValue());
+          const currentDate = new Date();
+          const timeDifference = currentDate.getTime() - date.getTime();
+          const monthsDifference = timeDifference / (1000 * 60 * 60 * 24 * 30);
+
+          let color = "black";
+          let tooltip = "";
+
+          if (monthsDifference <= 18) {
+            color = "white";
+            tooltip = "Recent project, last pushed in the last 18 months";
+          } else if (monthsDifference <= 36) {
+            color = "orange";
+            tooltip =
+              "Old project, last pushed between 18 months and 3 years ago";
+          } else {
+            color = "red";
+            tooltip = "Obsolete project, last pushed more than 3 years ago";
+          }
+
+          const cellStyle = {
+            color: color,
+            cursor: "pointer", // Add cursor pointer to indicate the tooltip
+            position: "relative", // Add relative position for tooltip positioning
+          };
+
+          return (
+            <span style={cellStyle} title={tooltip}>
+              {date.toLocaleDateString()}
+            </span>
+          );
+        },
+        footer: (props) => props.column.id,
+      }),
     ],
     []
   );
 
-  const {
-    getTableProps,
-    getTableBodyProps,
-    headerGroups,
-    rows,
-    prepareRow,
-    visibleColumns,
-    setGlobalFilter,
-    state: { selectedRowIds, globalFilter },
-  } = useTable(
-    { columns, data: repositories },
-    useGlobalFilter,
-    useSortBy,
-    useRowSelect
-  );
+  const table = useReactTable({
+    columns,
+    data: repositories,
+    state: {
+      sorting,
+      rowSelection,
+      globalFilter,
+    },
+    onGlobalFilterChange: setGlobalFilter,
+    onSortingChange: setSorting,
+    enableRowSelection: true, //enable row selection for all rows
+    onRowSelectionChange: setRowSelection,
+    getCoreRowModel: getCoreRowModel(),
+    getSortedRowModel: getSortedRowModel(),
+    getFilteredRowModel: getFilteredRowModel(),
+    debugTable: true,
+  });
 
   const sortedRows = useMemo(() => {
-    const selectedRows = rows.filter((row) =>
-      selectedRowIds.hasOwnProperty(row.id)
-    );
-    const unselectedRows = rows.filter(
-      (row) => !selectedRowIds.hasOwnProperty(row.id)
-    );
+    const selectedRows = table
+      .getRowModel()
+      .rows.filter((row) => rowSelection.hasOwnProperty(row.id));
+    const unselectedRows = table
+      .getRowModel()
+      .rows.filter((row) => !rowSelection.hasOwnProperty(row.id));
+
     return [...selectedRows, ...unselectedRows];
-  }, [selectedRowIds, rows]);
+  }, [rowSelection, table.getRowModel().rows]);
+
+  useEffect(() => {
+    initializeStore();
+
+    if (token && organization) {
+      fetchCurrentUser();
+      fetchTeams();
+    }
+  }, [token, organization]);
+
+  useEffect(() => {
+    const fetchData = async () => {
+      localStorage.setItem("selectedTeam", selectedTeam);
+      if (selectedTeam === "") return;
+
+      await fetchRepositories();
+
+      const team = teams.find((t) => t.name === selectedTeam);
+      if (team) {
+        let _rowSelection: RowSelectionState = {};
+        team.repositories.ids.forEach((idObject) => {
+          const repository = sortedRows.find(
+            (r) => r.original.id === idObject.id
+          );
+          if (repository) _rowSelection[repository.index] = true;
+        });
+        setRowSelection(_rowSelection);
+      }
+    };
+
+    fetchData();
+  }, [selectedTeam]);
 
   return (
     <div className={`${styles.container} mb-6 mt-6`}>
@@ -297,82 +336,90 @@ export default function Home() {
         ) : (
           <>
             <div className="m-4">
-              <label>
-                Select a Team:
-                <select
-                  title="team"
-                  value={selectedTeam}
-                  onChange={handleTeamChange}
-                  className={`${styles["select-field"]} w-full`}
-                >
-                  <option value="">Select</option>
-                  {teams.map((team: any) => (
-                    <option key={team.id} value={team.slug}>
-                      {team.name}
-                    </option>
-                  ))}
-                </select>
-              </label>
+              {loadingTeams ? (
+                "Loading teams..."
+              ) : (
+                <label>
+                  Select a Team:
+                  <select
+                    title="team"
+                    value={selectedTeam}
+                    onChange={handleTeamChange}
+                    className={`${styles["select-field"]} w-full`}
+                  >
+                    <option value="">Select</option>
+                    {teams.map((team: Team) => (
+                      <option key={team.id} value={team.name}>
+                        {team.name} ({team.repositories.ids.length})
+                      </option>
+                    ))}
+                  </select>
+                </label>
+              )}
             </div>
             <div className="m-4">
-              {!selectedTeam ? (
-                <></>
-              ) : (
+              {loadingRepositories ? (
+                "Loading repositories..."
+              ) : selectedTeam ? (
                 <>
                   <label>
                     Select some repositories to associate to {selectedTeam}:
                   </label>
                   <table
-                    {...getTableProps()}
                     className={`${styles["custom-table"]} border border-collapse w-full`}
                   >
                     <thead>
-                      {headerGroups.map((headerGroup) => (
-                        <tr
-                          {...headerGroup.getHeaderGroupProps()}
-                          id={`hg${headerGroup.id}`}
-                          key={`hg${headerGroup.id}`}
-                          className={`${styles["header-row"]} bg-gray-200`}
-                        >
-                          {headerGroup.headers.map((column) => (
-                            <th
-                              {...column.getHeaderProps(
-                                column.canSort
-                                  ? column.getSortByToggleProps()
-                                  : undefined
-                              )}
-                              id={`hg${headerGroup.id}-h${column.id}`}
-                              key={`hg${headerGroup.id}-h${column.id}`}
-                              className="px-4 py-2 text-left"
-                            >
-                              {column.render("Header")}
-                              {column.canSort ? (
-                                <span
-                                  className={`${styles["column-sorting-indicator"]}`}
+                      {table.getHeaderGroups().map((headerGroup) => {
+                        return (
+                          <tr
+                            key={headerGroup.id}
+                            className={`${styles["header-row"]} bg-gray-200`}
+                          >
+                            {headerGroup.headers.map((header) => {
+                              return (
+                                <th
+                                  key={header.id}
+                                  colSpan={header.colSpan}
+                                  className={`px-4 py-2 text-left`}
                                 >
-                                  {column.isSorted
-                                    ? column.isSortedDesc
-                                      ? "▼"
-                                      : "▲"
-                                    : "▲▼"}
-                                </span>
-                              ) : (
-                                <></>
-                              )}
-                            </th>
-                          ))}
-                        </tr>
-                      ))}
+                                  {header.isPlaceholder ? null : (
+                                    <div
+                                      {...{
+                                        className: header.column.getCanSort()
+                                          ? "cursor-pointer select-none"
+                                          : "",
+                                        onClick:
+                                          header.column.getToggleSortingHandler(),
+                                      }}
+                                    >
+                                      {flexRender(
+                                        header.column.columnDef.header,
+                                        header.getContext()
+                                      )}
+                                      {{
+                                        asc: " 🔼",
+                                        desc: " 🔽",
+                                      }[
+                                        header.column.getIsSorted() as string
+                                      ] ?? null}
+                                    </div>
+                                  )}
+                                </th>
+                              );
+                            })}
+                          </tr>
+                        );
+                      })}
                       <tr id="filter" key="filter">
                         <th
                           id="filter2"
                           key="filter2"
-                          colSpan={visibleColumns.length}
+                          colSpan={table.getVisibleFlatColumns().length}
                           className={`${styles["header-filter"]} px-4 py-2 text-left bg-black`}
                         >
                           <div>
                             <input
-                              value={globalFilter}
+                              value={globalFilter ?? ""}
                               placeholder="Type to search..."
                               title="filter"
                               onChange={handleFilterChange}
@@ -381,24 +428,20 @@ export default function Home() {
                         </th>
                       </tr>
                     </thead>
-                    <tbody {...getTableBodyProps()}>
+                    <tbody>
                       {sortedRows.map((row) => {
-                        prepareRow(row);
                         return (
-                          <tr
-                            {...row.getRowProps()}
-                            id={`r${row.id}`}
-                            key={`r${row.id}`}
-                          >
-                            {row.cells.map((cell) => {
+                          <tr key={row.id}>
+                            {row.getVisibleCells().map((cell) => {
                               return (
                                 <td
-                                  {...cell.getCellProps()}
-                                  id={`r${row.id}-c${cell.column.id}`}
-                                  key={`r${row.id}-c${cell.column.id}`}
+                                  key={cell.id}
                                   className="px-4 py-2 border-t"
                                 >
-                                  {cell.render("Cell")}
+                                  {flexRender(
+                                    cell.column.columnDef.cell,
+                                    cell.getContext()
+                                  )}
                                 </td>
                               );
                             })}
@@ -410,25 +453,20 @@ export default function Home() {
                       <tr>
                         <th colSpan={5} className="p-0">
                           <div>
-                            <p className="text-center">
-                              Selected Rows:{" "}
-                              {Object.keys(selectedRowIds).length} /{" "}
-                              {Object.keys(rows).length}
-                            </p>
                             <button
                               type="button"
-                              disabled={Object.keys(selectedRowIds).length <= 0}
-                              onClick={associateReposToTeam}
+                              disabled={Object.keys(rowSelection).length <= 0}
+                              onClick={updateSelectedTeam}
                               className={`px-4 py-2 w-full ${
-                                Object.keys(selectedRowIds).length <= 0
+                                Object.keys(rowSelection).length <= 0
                                   ? "bg-gray-500"
                                   : "bg-blue-500"
                               }  text-white`}
                             >
-                              {Object.keys(selectedRowIds).length <= 0
+                              {Object.keys(rowSelection).length <= 0
                                 ? "Select some repos"
                                 : `Associate ${
-                                    Object.keys(selectedRowIds).length
+                                    Object.keys(rowSelection).length
                                   } / 
                                    ${Object.keys(repositories).length} repos`}
                             </button>
@@ -438,6 +476,8 @@ export default function Home() {
                     </tfoot>
                   </table>
                 </>
+              ) : (
+                <></>
               )}
             </div>
           </>

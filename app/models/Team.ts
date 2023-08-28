@@ -1,12 +1,13 @@
 export interface Team {
-  id: number;
+  id: string;
   name: string;
-  node_id: string;
   slug: string;
   description: string;
   privacy: string;
   url: string;
-  permission: string;
-  parent: any | null;
-  repositories: number[];
+  repositories: {
+    ids: {
+      id: string;
+    }[];
+  };
 }

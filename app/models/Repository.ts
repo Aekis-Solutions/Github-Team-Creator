@@ -1,12 +1,12 @@
 export interface Repository {
-  id: number;
+  id: string;
   name: string;
-  fullName: string;
   description: string;
-  language: string;
-  archived: boolean;
+  primaryLanguage: {
+    name: string;
+  };
   created: Date;
-  updated: Date;
+  pushed: Date;
+  private: boolean;
   url: string;
-  homepage: string;
 }
