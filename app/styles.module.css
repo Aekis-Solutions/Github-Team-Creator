@@ -17,6 +17,12 @@
     border: 1px solid #ccc;
     border-radius: 4px;
     background-color: white;
+    height: 2.5rem;
+}
+
+.button-field {
+    @apply ml-2 bg-blue-500 text-white;
+    height: 2.5rem;
 }
 
 .column-sorting-indicator {
@@ -65,3 +71,13 @@
     bottom: 0;
     z-index: 1;
 }
+
+.row-associate {
+    border-left: solid 3px green;
+    background-color: #00FF0033
+}
+
+.row-disassociate {
+    border-left: solid 3px red;
+    background-color: #FF000033
+    }

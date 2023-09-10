@@ -1,4 +1,5 @@
-const { graphql } = require("@octokit/graphql");
+import { graphql } from "@octokit/graphql";
+import { Octokit } from "@octokit/rest";
 import { Team } from "../models/Team";
 import { User } from "../models/User";
 import { Repository } from "../models/Repository";
@@ -40,9 +41,7 @@ export class GithubService {
                 privacy
                 url
                 repositories {
-                  ids: nodes {
-                    id
-                  }
+                  totalCount
                 }
               }
               pageInfo {
@@ -122,33 +121,98 @@ export class GithubService {
     return allRepositories;
   }
 
-  async updateTeam(
+  async fetchTeamRepositoryIds(
     token: string,
-    teamName: string,
-    repositories: string[]
-  ): Promise<void> {
-    const mutation = `
-    mutation UpdateTeamRepos($teamName: ID!, $repositoryIds: [ID!]!) {
-      updateTeam(input: { teamName: $teamId, repositoryIds: $repositoryIds }) {
-        team {
-          name
-          repositories {
-            nodes {
+    organization: string,
+    teamSlug: string
+  ): Promise<string[]> {
+    let hasNextPage = true;
+    let endCursor = null;
+    let allRepositoryIds: string[] = [];
+
+    while (hasNextPage) {
+      const query = `
+        query GetTeamRepositoryIds($organization: String!, $teamSlug: String!, $endCursor: String) {
+          organization(login: $organization) {
+            team(slug: $teamSlug) {
               id
+              repositories(first: 100, after: $endCursor) {
+                totalCount
+                ids: nodes {
+                  id
+                }
+                pageInfo {
+                  hasNextPage
+                  endCursor
+                }
+              }
             }
           }
         }
-      }
+      `;
+
+      const variables = {
+        organization: organization,
+        teamSlug: teamSlug,
+        endCursor: endCursor,
+        headers: { authorization: `token ${token}` },
+      };
+
+      const response: any = await graphql(query, variables);
+
+      const repositoryIds: { id: string }[] =
+        response.organization.team.repositories.ids;
+      allRepositoryIds = [
+        ...allRepositoryIds,
+        ...repositoryIds.map((objectId) => objectId.id),
+      ];
+      hasNextPage =
+        response.organization.team.repositories.pageInfo.hasNextPage;
+      endCursor = response.organization.team.repositories.pageInfo.endCursor;
     }
-  `;
 
-    const variables = {
-      teamId: teamName,
-      repositoryIds: repositories,
-    };
+    return allRepositoryIds;
+  }
 
-    const response = await graphql(mutation, variables, {
-      headers: { authorization: `token ${token}` },
-    });
+  async associateRepoWithTeam(
+    token: string,
+    organization: string,
+    team: Team,
+    repository: Repository
+  ): Promise<void> {
+    try {
+      const octokit = new Octokit();
+      const params = {
+        headers: { authorization: `token ${token}` },
+        org: organization,
+        team_slug: team.slug,
+        owner: organization, // Assuming the repos are in the same organization
+        repo: repository.name,
+      };
+      await octokit.teams.addOrUpdateRepoPermissionsInOrg(params);
+    } catch (error) {
+      console.error("Error associating repository with team:", error);
+    }
+  }
+
+  async disassociateRepoWithTeam(
+    token: string,
+    organization: string,
+    team: Team,
+    repository: Repository
+  ): Promise<void> {
+    try {
+      const octokit = new Octokit();
+      const params = {
+        headers: { authorization: `token ${token}` },
+        org: organization,
+        team_slug: team.slug,
+        owner: organization, // Assuming the repos are in the same organization
+        repo: repository.name,
+      };
+      await octokit.teams.removeRepoInOrg(params);
+    } catch (error) {
+      console.error("Error disassociating repository with team:", error);
+    }
   }
 }

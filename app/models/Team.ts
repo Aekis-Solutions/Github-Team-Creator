@@ -6,8 +6,7 @@ export interface Team {
   privacy: string;
   url: string;
   repositories: {
-    ids: {
-      id: string;
-    }[];
+    totalCount: number;
+    ids: string[];
   };
 }
